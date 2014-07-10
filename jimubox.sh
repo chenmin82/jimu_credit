@@ -13,6 +13,7 @@ lastCreditRate=0
 CreditListFile=List
 checkCount=1
 checkInterval=30
+threshold=0.85 # rate discount ratio
 
 parseCreditList()
 {
@@ -41,13 +42,12 @@ parseCreditList()
   creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
   mv $tmpIndexFile Index.$creditIndex
   echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount/$creditRate%/$creditDays days"
-  if [ `echo "$lastCreditRate > 12" | bc` -ne 0 ] ; then
+  if [ `echo "scale=4; $creditRate / $creditOrigRate >= $threshold" | bc` -ne 0 ] ; then
     # If "mail" available and it's a new credit, send out a mail notification.
-    # Don't send mail notification at first run.
-    if [ ! "$(which mail)" == "" ] && [ ! "$lastCreditIndex" == "$creditIndex" ] && [ $checkCount -gt 1 ] ; then
-      echo "A good credit [$CreditRate%] appears with $creditAmount remained. Go go go..." | mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com
+    if [ ! "$(which mail)" == "" ] && [ ! "$lastCreditIndex" == "$creditIndex" ] ; then
+      echo "A good credit [$creditRate%] appears with $creditAmount remained. Go go go..." | mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com
     fi
-    echo "A good credit [$CreditRate%] appears with $creditAmount remained. Go go go..."
+    echo "A good credit [$creditRate%] appears with $creditAmount remained. Go go go..."
   fi
 
   if [ ! "$lastCreditIndex" == "$creditIndex" ]; then rm -f Index.$lastCreditIndex; fi
