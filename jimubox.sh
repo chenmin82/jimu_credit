@@ -11,7 +11,7 @@ CreditAddr="https://www.jimubox.com/CreditAssign/List"
 lastCreditIndex=""
 lastCreditRate=0
 CreditListFile=List
-checkCount=0
+checkCount=1
 checkInterval=30
 
 parseCreditList()
@@ -19,7 +19,7 @@ parseCreditList()
   #set -x
   linesPerCreditIndex=50
   if [ ! -e $CreditListFile ]; then return; fi
-  tmpIndexFile=`mktemp --tmpdir=./`
+  tmpIndexFile=`mktemp -p .`
   grep '<div class="span8 ">' -C $linesPerCreditIndex -m 1 $CreditListFile > $tmpIndexFile
   # No credit index yet, return
   if [ $? -eq 1 ]; then
@@ -31,7 +31,7 @@ parseCreditList()
   creditIndex=`cat $tmpIndexFile | grep '<a href="/CreditAssign/Index/' -m 1 | tr '<a href="/CreditAssign/Index/' " " | awk ' { print $1 }'`
 
   # No update...
-  if [ "$lastCreditIndex" == "creditIndex" ] ; then return; fi
+  # if [ "$lastCreditIndex" == "$creditIndex" ] ; then return; fi
 
   # Extract credit index, rate, days, amount.
   creditLine=`tac $tmpIndexFile | grep '<span class="important">' -m 1`
@@ -41,18 +41,25 @@ parseCreditList()
   creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
   mv $tmpIndexFile Index.$creditIndex
   echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount/$creditRate%/$creditDays days"
+  if [ `echo "$lastCreditRate > 12" | bc` -ne 0 ] ; then
+    # If "mail" available and it's a new credit, send out a mail notification.
+    # Don't send mail notification at first run.
+    if [ ! "$(which mail)" == "" ] && [ ! "$lastCreditIndex" == "$creditIndex" ] && [ $checkCount -gt 1 ] ; then
+      echo "A good credit [$CreditRate%] appears with $creditAmount remained. Go go go..." | mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com
+    fi
+    echo "A good credit [$CreditRate%] appears with $creditAmount remained. Go go go..."
+  fi
+
+  if [ ! "$lastCreditIndex" == "$creditIndex" ]; then rm -f Index.$lastCreditIndex; fi
   lastCreditIndex=$creditIndex
   lastCreditRate=$creditRate
-  if [ `echo "$lastCreditRate > 12" | bc` -ne 0 ] ; then
-    echo "A good credit [$lastCreditRate%] appears with $creditAmount remained. Go go go..."
-  fi
   #set +x
 }
 
 #set -x
 while true
 do
-  echo -e "$checkCount"
+  echo -e "${checkCount}\t                        [ `date '+%x %H:%M:%S'` ]"
   rm -f $CreditListFile
   wget $CreditAddr -O $CreditListFile -q #2>&1 > /dev/null
   parseCreditList
