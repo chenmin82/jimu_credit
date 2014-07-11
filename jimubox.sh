@@ -12,8 +12,13 @@ lastCreditIndex=""
 lastCreditRate=0
 CreditListFile=List
 checkCount=1
-checkInterval=30
-threshold=0.85 # rate discount ratio
+# check interval:
+# 0 - 6   : 30 sec
+# 7 - 8   : 20 sec
+# 9 - 21  : 10 sec
+# 22 - 23 : 15 sec
+CheckInterval=(30 30 30 30 30 30 30 20 20 10 10 10 10 10 10 10 10 10 10 10 10 10 15 15)
+Threshold=0.85 # rate discount ratio
 
 parseCreditList()
 {
@@ -42,12 +47,20 @@ parseCreditList()
   creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
   mv $tmpIndexFile Index.$creditIndex
   echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount/$creditRate%/$creditDays days"
-  if [ `echo "scale=4; $creditRate / $creditOrigRate >= $threshold" | bc` -ne 0 ] ; then
+  if [ `echo "scale=4; $creditRate / $creditOrigRate >= $Threshold" | bc` -ne 0 ] ; then
     # If "mail" available and it's a new credit, send out a mail notification.
+    echo "------------------------" > mail.txt
+    echo "This credit looks good:" >> mail.txt
+    echo "  Rate  : $creditRate% / $creditOrigRate%" >> mail.txt
+    echo "  Days  : $creditDays" >> mail.txt
+    echo "  Amount: \$ $creditAmount" >> mail.txt
+    echo "Good luck!" >> mail.txt
+    echo "------------------------" >> mail.txt
     if [ ! "$(which mail)" == "" ] && [ ! "$lastCreditIndex" == "$creditIndex" ] ; then
-      echo "A good credit [$creditRate%] appears with $creditAmount remained. Go go go..." | mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com
+      mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com < mail.txt
     fi
-    echo "A good credit [$creditRate%] appears with $creditAmount remained. Go go go..."
+    cat mail.txt
+    rm -f mail.txt
   fi
 
   if [ ! "$lastCreditIndex" == "$creditIndex" ]; then rm -f Index.$lastCreditIndex; fi
@@ -64,5 +77,5 @@ do
   wget $CreditAddr -O $CreditListFile -q #2>&1 > /dev/null
   parseCreditList
   checkCount=$(($checkCount+1))
-  sleep $checkInterval
+  sleep ${CheckInterval[`date '+%H'`]}
 done
