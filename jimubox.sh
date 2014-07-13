@@ -46,14 +46,14 @@ parseCreditList()
   creditDays=`tac $tmpIndexFile | grep '<span class="title">' -m 1 | grep -o "[0-9]\+"`
   creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
   mv $tmpIndexFile Index.$creditIndex
-  echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount/$creditRate%/$creditDays days"
+  echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / $creditRate% / $creditDays days"
   if [ `echo "scale=4; $creditRate / $creditOrigRate >= $Threshold" | bc` -ne 0 ] ; then
     # If "mail" available and it's a new credit, send out a mail notification.
     echo "------------------------" > mail.txt
     echo "This credit looks good:" >> mail.txt
-    echo "  Rate  : $creditRate% / $creditOrigRate%" >> mail.txt
-    echo "  Days  : $creditDays" >> mail.txt
-    echo "  Amount: \$ $creditAmount" >> mail.txt
+    echo "    Rate : $creditRate% / $creditOrigRate%" >> mail.txt
+    echo "  Amount : \$ $creditAmount" >> mail.txt
+    echo "    Days : $creditDays" >> mail.txt
     echo "Good luck!" >> mail.txt
     echo "------------------------" >> mail.txt
     if [ ! "$(which mail)" == "" ] && [ ! "$lastCreditIndex" == "$creditIndex" ] ; then
@@ -77,5 +77,5 @@ do
   wget $CreditAddr -O $CreditListFile -q #2>&1 > /dev/null
   parseCreditList
   checkCount=$(($checkCount+1))
-  sleep ${CheckInterval[`date '+%H'`]}
+  sleep ${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
 done
