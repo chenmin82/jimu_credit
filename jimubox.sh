@@ -22,6 +22,15 @@ DaysRTPThreshold=15 # At least returns to pricipal in 15 days.
 
 creditLog=""
 
+format() {
+  echo "$1" | awk '
+    BEGIN {
+      logFormat="%-6s %12s %5s %10s %8s %15s %9s %10s\n"
+    }
+    { printf logFormat, $1, $2, $3, $4, $5, $6, $7, $8 }
+  '
+}
+
 parseCreditList()
 {
   #set -x
@@ -92,7 +101,7 @@ parseCreditList()
         mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com < mail.txt
       fi
       # Update credit log, latest credit in second line
-      creditInfo="$creditIndex $creditOrigRate $creditDays $creditAmount $creditRate $rateOf90Days $daysToRTP `date +%T`"
+      creditInfo=$(format "$creditIndex $creditOrigRate $creditDays $creditAmount $creditRate $rateOf90Days $daysToRTP `date +%T`")
       sed -i -e '1a\' -e "$creditInfo" $creditLog
     fi
     cat mail.txt
@@ -112,7 +121,7 @@ do
   echo -e "${checkCount}\t                        [ `date '+%x %H:%M:%S'` ]"
   creditLog="credit-`date '+%F'.log`"
   if [ ! -e $creditLog ]; then
-    echo "Index OrigRate(%) Days Amount($) Rate(%) RateOf90Days(%) DaysToRTP Time" > $creditLog
+    format "Index OrigRate(%) Days Amount($) Rate(%) RateOf90Days(%) DaysToRTP Time" > $creditLog
   fi
   rm -f $CreditListFile
   wget $CreditAddr -O $CreditListFile -q #2>&1 > /dev/null
