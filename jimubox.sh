@@ -7,9 +7,16 @@ purple='\E[35;1m'
 red='\E[31;1m'
 nocol='\E[0m'
 
-CreditAddr="https://www.jimubox.com/CreditAssign/List"
+CreditAddr="https://www.jimubox.com/CreditAssign"
 lastCreditIndex=""
+lastCreditValue=0
+lastCreditFairValue=0
+lastCreditPrice=0
+lastCreditOrigRate=0
+lastCreditDays=0
 lastCreditRate=0
+lastCreditAmount=0
+lastCreditAmountAvail=0
 CreditListFile=List
 # check interval:
 # 0 - 6   : 30 sec
@@ -25,7 +32,7 @@ creditLog=""
 format() {
   echo "$1" | awk '
     BEGIN {
-      logFormat="%-6s %12s %5s %10s %8s %15s %9s %10s\n"
+      logFormat="%-6s %10s %12s %8s %15s %9s %5s %10s\n"
     }
     { printf logFormat, $1, $2, $3, $4, $5, $6, $7, $8 }
   '
@@ -40,23 +47,41 @@ parseCreditList()
   grep '<div class="span8 ">' -C $linesPerCreditIndex -m 1 $CreditListFile > $tmpIndexFile
   # No credit index yet, return
   if [ $? -eq 1 ]; then
-    echo "No credit available. Please wait..." 
+    echo "No credit available. Please wait..."
     rm -f $tmpIndexFile
-    return; 
+    return;
   fi
 
   creditIndex=`cat $tmpIndexFile | grep '<a href="/CreditAssign/Index/' -m 1 | tr '<a href="/CreditAssign/Index/' " " | awk ' { print $1 }'`
 
   # No update...
-  # if [ "$lastCreditIndex" == "$creditIndex" ] ; then return; fi
+  if [ "$lastCreditIndex" == "$creditIndex" ] ; then
+    creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
+    echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
+    rm -f $tmpIndexFile
+    return;
+  fi
 
-  # Extract credit index, rate, days, amount.
-  creditLine=`tac $tmpIndexFile | grep '<span class="important">' -m 1`
-  creditOrigRate=`cat $tmpIndexFile | grep "^[ \t]*<span class=\"\">" | grep -o "[0-9][0-9]*\.\?[0-9]*"`
-  creditRate=`echo $creditLine | tr '<span class="important">' " " | tr "%" " "  | awk ' { print $1 } '`
-  creditDays=`tac $tmpIndexFile | grep '<span class="title">' -m 1 | grep -o "[0-9]\+"`
-  creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
-  mv $tmpIndexFile Index.$creditIndex
+  IndexFile=Index.$creditIndex
+  wget $CreditAddr/Index/$creditIndex -O $IndexFile -q #2>&1 > /dev/null
+
+  # Extract credit value, rate, days, amount.
+  #creditLine=`tac $tmpIndexFile | grep '<span class="important">' -m 1`
+  #creditOrigRate=`cat $tmpIndexFile | grep "^[ \t]*<span class=\"\">" | grep -o "[0-9][0-9]*\.\?[0-9]*"`
+  #creditRate=`echo $creditLine | tr '<span class="important">' " " | tr "%" " "  | awk ' { print $1 } '`
+  #creditDays=`tac $tmpIndexFile | grep '<span class="title">' -m 1 | grep -o "[0-9]\+"`
+  #creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
+  tmpInfo=`grep "^[ \t]*[0-9][0-9,]*\.\?[0-9]*" $IndexFile | awk ' {sub(",", "", $1); print $1 } '`
+  creditValue=`echo "$tmpInfo" | sed -n '1p'`
+  creditFV=`echo "$tmpInfo" | sed -n '2p'`
+  creditPrice=`echo "$tmpInfo" | sed -n '3p'`
+  tmpInfo=`grep '<span class="">' $IndexFile`
+  creditOrigRate=`echo "$tmpInfo" | tail -n 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
+  creditDays=`echo "$tmpInfo" | head -n 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
+  tmpInfo=`grep '<span class="important">' $IndexFile | grep -o "[0-9][0-9,]*\.\?[0-9]*" | awk ' {sub(",", "", $1); print $1 } '`
+  creditAmount=`echo "$tmpInfo" | sed -n '1p'`
+  creditRate=`echo "$tmpInfo" | sed -n '2p'`
+  rm -f $tmpIndexFile $IndexFile
 
   # A "good" credit:
   #   1. credit rate is greater than original credit rate, OR
@@ -65,19 +90,14 @@ parseCreditList()
   if [ `echo "$creditRate >= $creditOrigRate" | bc` -ne 0 ]; then
     goodCredit=1
     daysToRTP=0
-    rateOf90Days=$creditOrigRate
+    rateOf90Days=`echo "scale=4; ($creditOrigRate * $creditValue / $creditPrice + ($creditFV - $creditPrice) / $creditPrice * 36500 / 90)" | bc`
   else
-    daysToRTP=`echo "scale=4; ($creditOrigRate - $creditRate) * $creditDays / $creditOrigRate" | bc`
+    daysToRTP=`echo "scale=4; ($creditPrice - $creditFV) / ($creditOrigRate * $creditValue / 36500) " | bc`
     if [ $creditDays -gt 120 ]; then        # credit that can be assigned again in the future
-      rateOf90Days=`echo "scale=4; (90 - $daysToRTP) * $creditOrigRate / 90" | bc`
+      rateOf90Days=`echo "scale=4; (90 - $daysToRTP) * $creditOrigRate / 90 * $creditValue / $creditPrice" | bc`
     else
       rateOf90Days=$creditRate
     fi
-    # rateOf90Days = (90 - $daysToRTP) * $creditOrigRate / 90
-    # => $rateOf90Days / $creditOrigRate = (90 - $daysToRTP) / 90
-    # => (90 - $daysToRTP) / 90 >= $RateThreshold
-    # => $daysToRTP <= 90 - 90 * $RateThreshold = 90 * (1 - $RateThreshold)
-    # If $daysToRTP=15, then $RateThreshold <= 5/6
     #if [ `echo "scale=4; ($daysToRTP <= $DaysRTPThreshold) && ($rateOf90Days/$creditOrigRate >= $RateThreshold)" | bc` -ne 0 ] ; then
     if [ `echo "scale=4; ($daysToRTP <= $DaysRTPThreshold) || ($rateOf90Days >= 11)" | bc` -ne 0 ] ; then
       goodCredit=1
@@ -92,6 +112,7 @@ parseCreditList()
     echo "    Rate : $rateOf90Days / $creditRate% / $creditOrigRate%" >> mail.txt
     echo "RTP/Days : $daysToRTP / $creditDays" >> mail.txt
     echo "  Amount : \$ $creditAmount" >> mail.txt
+    echo "Val/FV/P : \$ $creditValue / $creditFV / $creditPrice" >> mail.txt
     echo "Good luck!" >> mail.txt
     echo "------------------------" >> mail.txt
     newCredit=0;
@@ -101,30 +122,33 @@ parseCreditList()
         mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com < mail.txt
       fi
       # Update credit log, latest credit in second line
-      creditInfo=$(format "$creditIndex $creditOrigRate $creditDays $creditAmount $creditRate $rateOf90Days $daysToRTP `date +%T`")
+      creditInfo=$(format "$creditIndex $creditAmount $creditOrigRate $creditRate $rateOf90Days $daysToRTP $creditDays `date +%T`")
       sed -i -e '1a\' -e "$creditInfo" $creditLog
     fi
     cat mail.txt
     rm -f mail.txt
   fi
 
-  if [ ! "$lastCreditIndex" == "$creditIndex" ]; then rm -f Index.$lastCreditIndex; fi
   lastCreditIndex=$creditIndex
   lastCreditRate=$creditRate
-  #set +x
 }
 
 #set -x
 checkCount=1
+#parseArgs "$0"
+if [ "$1" == "-d" ]; then
+#DEBUG=1
+  set -x
+fi
 while true
 do
   echo -e "${checkCount}\t                        [ `date '+%x %H:%M:%S'` ]"
   creditLog="credit-`date '+%F'.log`"
   if [ ! -e $creditLog ]; then
-    format "Index OrigRate(%) Days Amount($) Rate(%) RateOf90Days(%) DaysToRTP Time" > $creditLog
+    format "Index Amount($) OrigRate(%) Rate(%) RateOf90Days(%) DaysToRTP Days Time" > $creditLog
   fi
   rm -f $CreditListFile
-  wget $CreditAddr -O $CreditListFile -q #2>&1 > /dev/null
+  wget $CreditAddr/List -O $CreditListFile -q #2>&1 > /dev/null
   parseCreditList
   checkCount=$(($checkCount+1))
   sleep ${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
