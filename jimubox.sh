@@ -29,6 +29,19 @@ DaysRTPThreshold=15 # At least returns to pricipal in 15 days.
 
 creditLog=""
 
+parseArgs() {
+  echo "Args: $@"
+  while [ $# -gt 0 ]
+  do
+    case "$1" in
+      "-d")
+      DEBUG=1
+      set -x
+    esac
+    shift
+  done
+}
+
 format() {
   echo "$1" | awk '
     BEGIN {
@@ -135,11 +148,7 @@ parseCreditList()
 
 #set -x
 checkCount=1
-#parseArgs "$0"
-if [ "$1" == "-d" ]; then
-#DEBUG=1
-  set -x
-fi
+parseArgs "$@"
 while true
 do
   echo -e "${checkCount}\t                        [ `date '+%x %H:%M:%S'` ]"
