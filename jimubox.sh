@@ -27,7 +27,7 @@ CreditListFile=List
 CheckInterval=(30 30 30 30 30 30 30 20 20 10 10 10 10 10 10 10 10 10 10 10 10 10 15 15)
 RateThreshold=0.85  # Rate discount ratio (real rate that can be retrieved after re-assigning the credit after holding it for 90 days.)
 DaysRTPThreshold=15 # At least returns to pricipal in 15 days.
-
+CreditIndexList=""
 creditLog=""
 
 parseArgs() {
@@ -57,25 +57,38 @@ parseCreditList()
   #set -x
   linesPerCreditIndex=50
   if [ ! -e $CreditListFile ]; then return; fi
+  if [ `cat $CreditListFile | wc -c` -eq 0 ]; then return; fi
   tmpIndexFile=`mktemp -p .`
   grep '<div class="span8 ">' -C $linesPerCreditIndex -m 1 $CreditListFile > $tmpIndexFile
   # No credit index yet, return
   if [ $? -eq 1 ]; then
     echo "No credit available. Please wait..."
     rm -f $tmpIndexFile
-    return;
+    CreditIndexList=""
+    return
   fi
 
   creditIndex=`cat $tmpIndexFile | grep '<a href="/CreditAssign/Index/' -m 1 | tr '<a href="/CreditAssign/Index/' " " | awk ' { print $1 }'`
 
+  # whether it'a a new credit?
+  newCredit=1
+  for index in $CreditIndexList; do
+    if [ $index -eq $creditIndex ]; then
+      newCredit=0
+      break
+    fi
+  done
+
   # No update...
-  if [ "$lastCreditIndex" == "$creditIndex" ] ; then
+#  if [ "$lastCreditIndex" == "$creditIndex" ] ; then
+  if [ $newCredit -eq 0 ] ; then
     creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
     echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
     rm -f $tmpIndexFile
-    return;
+    return
   fi
 
+  CreditIndexList="$creditIndex $CreditIndexList"
   IndexFile=Index.$creditIndex
   wget --timeout=10 --tries=10 $CreditAddr/Index/$creditIndex -O $IndexFile -a $LogFile #2>&1 > /dev/null
 
