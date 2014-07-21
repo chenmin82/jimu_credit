@@ -8,6 +8,7 @@ red='\E[31;1m'
 nocol='\E[0m'
 
 CreditAddr="https://www.jimubox.com/CreditAssign"
+LogFile=jimu.log
 lastCreditIndex=""
 lastCreditValue=0
 lastCreditFairValue=0
@@ -76,7 +77,7 @@ parseCreditList()
   fi
 
   IndexFile=Index.$creditIndex
-  wget $CreditAddr/Index/$creditIndex -O $IndexFile -q #2>&1 > /dev/null
+  wget --timeout=10 --tries=10 $CreditAddr/Index/$creditIndex -O $IndexFile -a $LogFile #2>&1 > /dev/null
 
   # Extract credit value, rate, days, amount.
   #creditLine=`tac $tmpIndexFile | grep '<span class="important">' -m 1`
@@ -103,11 +104,15 @@ parseCreditList()
   if [ `echo "$creditRate >= $creditOrigRate" | bc` -ne 0 ]; then
     goodCredit=1
     daysToRTP=0
-    rateOf90Days=`echo "scale=4; ($creditOrigRate * $creditValue / $creditPrice + ($creditFV - $creditPrice) / $creditPrice * 36500 / 90)" | bc`
+    if [ $creditDays -gt 120 ]; then
+      rateOf90Days=`echo "scale=2; $creditOrigRate * $creditValue / $creditPrice + ($creditFV - $creditPrice) * 36500 / ($creditPrice * 90)" | bc`
+    else
+      rateOf90Days=$creditRate
+    fi
   else
-    daysToRTP=`echo "scale=4; ($creditPrice - $creditFV) / ($creditOrigRate * $creditValue / 36500) " | bc`
+    daysToRTP=`echo "scale=2; ($creditPrice - $creditFV) / ($creditOrigRate * $creditValue / 36500) " | bc`
     if [ $creditDays -gt 120 ]; then        # credit that can be assigned again in the future
-      rateOf90Days=`echo "scale=4; (90 - $daysToRTP) * $creditOrigRate / 90 * $creditValue / $creditPrice" | bc`
+      rateOf90Days=`echo "scale=2; (90 - $daysToRTP) * $creditOrigRate * $creditValue / (90 * $creditPrice)" | bc`
     else
       rateOf90Days=$creditRate
     fi
@@ -152,12 +157,12 @@ parseArgs "$@"
 while true
 do
   echo -e "${checkCount}\t                        [ `date '+%x %H:%M:%S'` ]"
-  creditLog="credit-`date '+%F'.log`"
+  creditLog="credit-`date '+%F'`.log"
   if [ ! -e $creditLog ]; then
     format "Index Amount($) OrigRate(%) Rate(%) RateOf90Days(%) DaysToRTP Days Time" > $creditLog
   fi
   rm -f $CreditListFile
-  wget $CreditAddr/List -O $CreditListFile -q #2>&1 > /dev/null
+  wget --timeout=10 --tries=10 $CreditAddr/List -O $CreditListFile -o $LogFile #2>&1 > /dev/null
   parseCreditList
   checkCount=$(($checkCount+1))
   sleep ${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
