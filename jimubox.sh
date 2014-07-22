@@ -9,15 +9,6 @@ nocol='\E[0m'
 
 CreditAddr="https://www.jimubox.com/CreditAssign"
 LogFile=jimu.log
-lastCreditIndex=""
-lastCreditValue=0
-lastCreditFairValue=0
-lastCreditPrice=0
-lastCreditOrigRate=0
-lastCreditDays=0
-lastCreditRate=0
-lastCreditAmount=0
-lastCreditAmountAvail=0
 CreditListFile=List
 # check interval:
 # 0 - 6   : 30 sec
@@ -27,8 +18,9 @@ CreditListFile=List
 CheckInterval=(30 30 30 30 30 30 30 20 20 10 10 10 10 10 10 10 10 10 10 10 10 10 15 15)
 RateThreshold=0.85  # Rate discount ratio (real rate that can be retrieved after re-assigning the credit after holding it for 90 days.)
 DaysRTPThreshold=15 # At least returns to pricipal in 15 days.
-CreditIndexList=""
+CreditIndexInfoList=""
 creditLog=""
+DEBUG=0
 
 parseArgs() {
   echo "Args: $@"
@@ -64,7 +56,7 @@ parseCreditList()
   if [ $? -eq 1 ]; then
     echo "No credit available. Please wait..."
     rm -f $tmpIndexFile
-    CreditIndexList=""
+    CreditIndexInfoList=""
     return
   fi
 
@@ -72,9 +64,15 @@ parseCreditList()
 
   # whether it'a a new credit?
   newCredit=1
-  for index in $CreditIndexList; do
+  for indexInfo in $CreditIndexInfoList; do
+    index=`echo "$indexInfo" | awk -F ';' ' { print $1 } '`
     if [ $index -eq $creditIndex ]; then
       newCredit=0
+      creditOrigRate=`echo "$indexInfo" | awk -F ';' ' { print $2 } '`
+      creditAmount=`echo "$indexInfo" | awk -F ';' ' { print $3 } '`
+      creditRate=`echo "$indexInfo" | awk -F ';' ' { print $4 } '`
+      creditDays=`echo "$indexInfo" | awk -F ';' ' { print $5 } '`
+      rateOf90Days=`echo "$indexInfo" | awk -F ';' ' { print $6 } '`
       break
     fi
   done
@@ -88,7 +86,6 @@ parseCreditList()
     return
   fi
 
-  CreditIndexList="$creditIndex $CreditIndexList"
   IndexFile=Index.$creditIndex
   wget --timeout=10 --tries=10 $CreditAddr/Index/$creditIndex -O $IndexFile -a $LogFile #2>&1 > /dev/null
 
@@ -135,6 +132,10 @@ parseCreditList()
     fi
   fi
   echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
+  CreditIndexInfoList="$creditIndex;$creditOrigRate;$creditAmount;$creditRate;$creditDays;$rateOf90Days $CreditIndexInfoList"
+#  if [ $DEBUG -eq 1 ] ; then
+#    echo "$CreditIndexInfoList" >> debug.log
+#  fi
 
   if [ $goodCredit -eq 1 ]; then
     # If "mail" available and it's a new credit, send out a mail notification.
@@ -146,8 +147,6 @@ parseCreditList()
     echo "Val/FV/P : \$ $creditValue / $creditFV / $creditPrice" >> mail.txt
     echo "Good luck!" >> mail.txt
     echo "------------------------" >> mail.txt
-    newCredit=0;
-    if [ ! "$lastCreditIndex" == "$creditIndex" ]; then newCredit=1; fi
     if [ $newCredit -eq 1 ] ; then
       if [ ! "$(which mail)" == "" ]; then
         mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com < mail.txt
@@ -159,9 +158,6 @@ parseCreditList()
     cat mail.txt
     rm -f mail.txt
   fi
-
-  lastCreditIndex=$creditIndex
-  lastCreditRate=$creditRate
 }
 
 #set -x
