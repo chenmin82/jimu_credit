@@ -139,23 +139,23 @@ parseCreditList()
 
   if [ $goodCredit -eq 1 ]; then
     # If "mail" available and it's a new credit, send out a mail notification.
-    echo "------------------------" > mail.txt
-    echo "This credit looks good:" >> mail.txt
+    echo "This credit looks good:" > mail.txt
     echo "    Rate : $rateOf90Days / $creditRate% / $creditOrigRate%" >> mail.txt
     echo "RTP/Days : $daysToRTP / $creditDays" >> mail.txt
     echo "  Amount : \$ $creditAmount" >> mail.txt
     echo "Val/FV/P : \$ $creditValue / $creditFV / $creditPrice" >> mail.txt
     echo "Good luck!" >> mail.txt
-    echo "------------------------" >> mail.txt
     if [ $newCredit -eq 1 ] ; then
       if [ ! "$(which mail)" == "" ]; then
-        mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com < mail.txt
+        mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com -- -f chenmin82@gmail.com < mail.txt
       fi
       # Update credit log, latest credit in second line
       creditInfo=$(format "$creditIndex $creditAmount $creditOrigRate $creditRate $rateOf90Days $daysToRTP $creditDays `date +%T`")
       sed -i -e '1a\' -e "$creditInfo" $creditLog
     fi
+    echo "------------------------"
     cat mail.txt
+    echo "------------------------"
     rm -f mail.txt
   fi
 }
