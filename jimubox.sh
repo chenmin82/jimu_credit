@@ -111,24 +111,26 @@ parseCreditList()
   #   1. credit rate is greater than original credit rate, OR
   #   2. days needed to recover the principal is less than $DaysRTPThreshold.
   goodCredit=0
-  if [ `echo "$creditRate >= $creditOrigRate" | bc` -ne 0 ]; then
-    goodCredit=1
-    daysToRTP=0
-    if [ $creditDays -gt 120 ]; then
-      rateOf90Days=`echo "scale=2; $creditOrigRate * $creditValue / $creditPrice + ($creditFV - $creditPrice) * 36500 / ($creditPrice * 90)" | bc`
-    else
-      rateOf90Days=$creditRate
-    fi
-  else
-    daysToRTP=`echo "scale=2; ($creditPrice - $creditFV) / ($creditOrigRate * $creditValue / 36500) " | bc`
-    if [ $creditDays -gt 120 ]; then        # credit that can be assigned again in the future
-      rateOf90Days=`echo "scale=2; (90 - $daysToRTP) * $creditOrigRate * $creditValue / (90 * $creditPrice)" | bc`
-    else
-      rateOf90Days=$creditRate
-    fi
-    #if [ `echo "scale=4; ($daysToRTP <= $DaysRTPThreshold) && ($rateOf90Days/$creditOrigRate >= $RateThreshold)" | bc` -ne 0 ] ; then
-    if [ `echo "scale=4; ($daysToRTP <= $DaysRTPThreshold) || ($rateOf90Days >= 11)" | bc` -ne 0 ] ; then
+  if [ ${creditValue%\.[0-9]*} -gt 500 ]; then
+    if [ `echo "$creditRate >= $creditOrigRate" | bc` -ne 0 ]; then
       goodCredit=1
+      daysToRTP=0
+      if [ $creditDays -gt 120 ]; then
+        rateOf90Days=`echo "scale=2; $creditOrigRate * $creditValue / $creditPrice + ($creditFV - $creditPrice) * 36500 / ($creditPrice * 90)" | bc`
+      else
+        rateOf90Days=$creditRate
+      fi
+    else
+      daysToRTP=`echo "scale=2; ($creditPrice - $creditFV) / ($creditOrigRate * $creditValue / 36500) " | bc`
+      if [ $creditDays -gt 120 ]; then        # credit that can be assigned again in the future
+        rateOf90Days=`echo "scale=2; (90 - $daysToRTP) * $creditOrigRate * $creditValue / (90 * $creditPrice)" | bc`
+      else
+        rateOf90Days=$creditRate
+      fi
+      #if [ `echo "scale=4; ($daysToRTP <= $DaysRTPThreshold) && ($rateOf90Days/$creditOrigRate >= $RateThreshold)" | bc` -ne 0 ] ; then
+      if [ `echo "scale=4; ($daysToRTP <= $DaysRTPThreshold) || ($rateOf90Days >= 11)" | bc` -ne 0 ] ; then
+        goodCredit=1
+      fi
     fi
   fi
   echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
@@ -147,7 +149,7 @@ parseCreditList()
     echo "Good luck!" >> mail.txt
     if [ $newCredit -eq 1 ] ; then
       if [ ! "$(which mail)" == "" ]; then
-        mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com -- -f chenmin82@gmail.com < mail.txt
+        mail -s "New credit $creditIndex: $creditRate%" chen.max@139.com < mail.txt
       fi
       # Update credit log, latest credit in second line
       creditInfo=$(format "$creditIndex $creditAmount $creditOrigRate $creditRate $rateOf90Days $daysToRTP $creditDays `date +%T`")
