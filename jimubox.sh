@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Include fetion utility
+. ./fetion.sh
+
 # Color definitions
 cyan='\E[36;1m'
 green='\E[32;1m'
@@ -21,6 +24,8 @@ DaysRTPThreshold=15 # At least returns to pricipal in 15 days.
 CreditIndexInfoList=""
 creditLog=""
 DEBUG=0
+FETION_NOTIFY=0
+FETION_CFG=fetion.cfg
 
 parseArgs() {
   echo "Args: $@"
@@ -28,8 +33,17 @@ parseArgs() {
   do
     case "$1" in
       "-d")
-      DEBUG=1
-      set -x
+	DEBUG=1
+	rm -f debug*.log
+	#set -x
+	;;
+      "--fetion")
+        if [ -e $FETION_CFG ]; then
+	  FETION_NOTIFY=1;
+	else
+	  echo "No configuration file $FETION_CFG exists. Disable --fetion option."
+	fi
+        ;;
     esac
     shift
   done
@@ -111,6 +125,7 @@ parseCreditList()
   #   1. credit rate is greater than original credit rate, OR
   #   2. days needed to recover the principal is less than $DaysRTPThreshold.
   goodCredit=0
+  rateOf90Days=0.00
   if [ ${creditValue%\.[0-9]*} -gt 500 ]; then
     if [ `echo "$creditRate >= $creditOrigRate" | bc` -ne 0 ]; then
       goodCredit=1
@@ -134,15 +149,22 @@ parseCreditList()
     fi
   fi
   echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
-  CreditIndexInfoList="$creditIndex;$creditOrigRate;$creditAmount;$creditRate;$creditDays;$rateOf90Days $CreditIndexInfoList"
-#  if [ $DEBUG -eq 1 ] ; then
-#    echo "$CreditIndexInfoList" >> debug.log
-#  fi
+  creditIndexInfo="$creditIndex;$creditOrigRate;$creditAmount;$creditRate;$creditDays;$rateOf90Days"
+  CreditIndexInfoList="$creditIndexInfo $CreditIndexInfoList"
+
+  if [ $DEBUG -eq 1 ] ; then
+    if [ ! -e debug_credits.log ]; then
+      echo "# All the credits parsed are listed below:" > debug_credits.log
+      echo "$creditIndexInfo" >> debug_credits.log
+    else
+      sed -i -e '1a\' -e "$creditIndexInfo" debug_credits.log
+    fi
+  fi
 
   if [ $goodCredit -eq 1 ]; then
     # If "mail" available and it's a new credit, send out a mail notification.
     echo "This credit looks good:" > mail.txt
-    echo "    Rate : $rateOf90Days / $creditRate% / $creditOrigRate%" >> mail.txt
+    echo "    Rate : $rateOf90Days% / $creditRate% / $creditOrigRate%" >> mail.txt
     echo "RTP/Days : $daysToRTP / $creditDays" >> mail.txt
     echo "  Amount : \$ $creditAmount" >> mail.txt
     echo "Val/FV/P : \$ $creditValue / $creditFV / $creditPrice" >> mail.txt
@@ -150,6 +172,26 @@ parseCreditList()
     if [ $newCredit -eq 1 ] ; then
       if [ ! "$(which mail)" == "" ]; then
         mail -s "New credit $creditIndex: $creditRate%" chen.max@139.com < mail.txt
+      fi
+      if [ ${FETION_NOTIFY} -eq 1 ]; then
+	# NOTICE: '%' is NOT allowed in fetion message.
+	local msg="$creditIndex Rate: $rateOf90Days/$creditRate/$creditOrigRate; RTP/Days: $daysToRTP/$creditDays; Val/FV/P: $creditValue/$creditFV/$creditPrice."
+	local msg_dbg="[`date +%T`] $msg"
+
+	send_msg "$msg_dbg"
+	if [ -e ${TempDir}/send_msg.result ]; then
+	  msg_dbg="$msg_dbg -> `cat ${TempDir}/send_msg.result`"
+	  rm -f ${TempDir}/send_msg.result
+	fi
+
+	if [ $DEBUG -eq 1 ] ; then
+	  if [ ! -e debug_fetion.log ]; then
+	    echo "# All the messages sent by Fetion are listed below:" > debug_fetion.log
+	    echo "$msg_dbg" >> debug_fetion.log
+	  else
+	    sed -i -e '1a\' -e "$msg_dbg" debug_fetion.log
+	  fi
+	fi
       fi
       # Update credit log, latest credit in second line
       creditInfo=$(format "$creditIndex $creditAmount $creditOrigRate $creditRate $rateOf90Days $daysToRTP $creditDays `date +%T`")
@@ -165,6 +207,14 @@ parseCreditList()
 #set -x
 checkCount=1
 parseArgs "$@"
+
+if [ ${FETION_NOTIFY} -eq 1 ]; then
+  read_cfg < $FETION_CFG
+  login
+  send_msg "JIMU credit parser started."
+  keep_alive &
+fi
+
 while true
 do
   echo -e "${checkCount}\t                        [ `date '+%x %H:%M:%S'` ]"
