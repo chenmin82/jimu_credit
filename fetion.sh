@@ -12,6 +12,8 @@ url_msg='http://f.10086.cn/im5/chat/sendNewGroupShortMsg.action'
 TempDir='./minFetionTmp'
 Uagent='Mozilla/5.0'
 LOGIN="$TempDir/.fetion.login"
+t_login_local=0 # local login time in ms
+t_login=0       # login time in ms from server
 
 read_cfg() {
   while read -r value
@@ -32,6 +34,13 @@ read_cfg() {
 throw() {
   echo "$*" >&2
   exit 1
+}
+
+make_argt() {
+  local now_sec=`date +%s`
+  local now_ns=`date +%N | sed 's/^0\+//g'`  # Removing leading 0.
+  local now_t=$(($now_sec*1000+$now_ns/1000000))
+  echo "t=$(($now_t-$t_login_local+$t_login))"
 }
 
 parse_captcha_code() {
@@ -147,19 +156,20 @@ login() {
   wget -q -P ${TempDir} --save-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies ${url_init}
 
   js_loader=`grep -o "js/loader.js?t=[0-9]*" ${TempDir}/login.action`
-  time=${js_loader##[^=]*=}
+  t_login=${js_loader##[^=]*=}
+  t_login_local=$((`date +%s`*1000+`date +%N | sed 's/^0\+//g'`/1000000))
   wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies ${url_base}/${js_loader} -O ${TempDir}/loader.js
 
-  time=$(($time+3500))
-  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies "${url_base}/systemimage/verifycode${time}.png?tp=im5&t=${time}" -O ${TempDir}/code1.png
+  #time=$(($time+3500))
+  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies "${url_base}/systemimage/verifycode${time}.png?tp=im5&`make_argt`" -O ${TempDir}/code1.png
 
-  time=$(($time+10))
-  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies "${url_base}/systemimage/verifycode${time}.png?tp=im5&t=${time}" -O ${TempDir}/code2.png
+  #time=$(($time+10))
+#  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies "${url_base}/systemimage/verifycode${time}.png?tp=im5&`make_argt`" -O ${TempDir}/code2.png
 
   parse_captcha_code
 
 # Special notice: we need to update the cookie here.
-  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --save-cookies=${TempDir}/cookie --post-data "m=${user}&pass=${password}&captchaCode=${code}&checkCodeKey=null" "${url_login}?t=$(($time+40000))" -O ${TempDir}/loginHtml5.action
+  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --save-cookies=${TempDir}/cookie --post-data "m=${user}&pass=${password}&captchaCode=${code}&checkCodeKey=null" "${url_login}?`make_argt`" -O ${TempDir}/loginHtml5.action
 
   #cat ${TempDir}/loginHtml5.action
   #cp ${TempDir}/loginHtml5.action ${TempDir}/login.action
@@ -181,7 +191,7 @@ login() {
 send_msg() {
   if [ $# -eq 0 ] ; then return; fi
   local msg=$1
-  arg_t="t=$((time+20000))"
+  arg_t="`make_argt`"
   wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --post-data "msg=${msg}&touserid=%2c${idUser}" --referer=${url_init} ${url_msg}?${arg_t} -O ${TempDir}/send_msg.action
 
   tokenize < ${TempDir}/send_msg.action | parse | grep -e '^\[\"info\"]'|awk '{print $2}'| sed 's/"//g' > ${TempDir}/send_msg.result
@@ -191,10 +201,12 @@ send_msg() {
 keep_alive() {
   while [ -e $LOGIN ]; do
     url_keepalive="${url_base}/box/alllist.action"
-    wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --post-data "" ${url_keepalive}?${arg_t} -O ${TempDir}/keep_alive.action #t=`make_argt`
+    wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --post-data "" ${url_keepalive}?`make_argt` -O ${TempDir}/keep_alive.action
     echo "Keep alive: `date`"
     sleep 15
   done
+  # In case we terminate fetion.sh unexpected by CTRL+C
+  if [ -e ${TempDir}/cookie ]; then fetion_logout; fi
   #exit 0
 }
 
