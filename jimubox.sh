@@ -11,6 +11,7 @@ red='\E[31;1m'
 nocol='\E[0m'
 
 CreditAddr="https://www.jimubox.com/CreditAssign"
+Options="status=1&guarantee=&order=rate&category="
 LogFile=jimu.log
 CreditListFile=List
 # check interval:
@@ -62,11 +63,12 @@ format() {
 parseCreditList()
 {
   #set -x
-  linesPerCreditIndex=50
+  local linesPerCreditIndex=40
+  local creditSepLineKey="project-card"
   if [ ! -e $CreditListFile ]; then return; fi
   if [ `cat $CreditListFile | wc -c` -eq 0 ]; then return; fi
   tmpIndexFile=`mktemp -p .`
-  grep '<div class="span8 ">' -C $linesPerCreditIndex -m 1 $CreditListFile > $tmpIndexFile
+  grep "$creditSepLineKey" -A $linesPerCreditIndex -m 1 $CreditListFile > $tmpIndexFile
   # No credit index yet, return
   if [ $? -eq 1 ]; then
     echo "No credit available. Please wait..."
@@ -75,7 +77,7 @@ parseCreditList()
     return
   fi
 
-  creditIndex=`cat $tmpIndexFile | grep '<a href="/CreditAssign/Index/' -m 1 | tr '<a href="/CreditAssign/Index/' " " | awk ' { print $1 }'`
+  creditIndex=`cat $tmpIndexFile | grep "/CreditAssign/Index/[0-9]\+" -o  -m 1 | cut -d'/' -f4`
 
   # whether it'a a new credit?
   newCredit=1
@@ -84,7 +86,7 @@ parseCreditList()
     if [ $index -eq $creditIndex ]; then
       newCredit=0
       creditOrigRate=`echo "$indexInfo" | awk -F ';' ' { print $2 } '`
-      creditAmount=`echo "$indexInfo" | awk -F ';' ' { print $3 } '`
+      creditValue=`echo "$indexInfo" | awk -F ';' ' { print $3 } '`
       creditRate=`echo "$indexInfo" | awk -F ';' ' { print $4 } '`
       creditDays=`echo "$indexInfo" | awk -F ';' ' { print $5 } '`
       rateOf90Days=`echo "$indexInfo" | awk -F ';' ' { print $6 } '`
@@ -95,7 +97,8 @@ parseCreditList()
   # No update...
 #  if [ "$lastCreditIndex" == "$creditIndex" ] ; then
   if [ $newCredit -eq 0 ] ; then
-    creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
+    local creditUsed=`cat $tmpIndexFile | grep 'project-current-money' | grep -o "[0-9][0-9,]*\.\?[0-9]*"  | sed 's/,//g'`
+    creditAmount=`echo "$creditValue-$creditUsed" | bc`
     echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
     rm -f $tmpIndexFile
     return
@@ -150,7 +153,7 @@ parseCreditList()
     fi
   fi
   echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
-  creditIndexInfo="$creditIndex;$creditOrigRate;$creditAmount;$creditRate;$creditDays;$rateOf90Days"
+  creditIndexInfo="$creditIndex;$creditOrigRate;$creditValue;$creditRate;$creditDays;$rateOf90Days"
   CreditIndexInfoList="$creditIndexInfo $CreditIndexInfoList"
 
   if [ $DEBUG -eq 1 ] ; then
@@ -228,7 +231,7 @@ do
     format "Index Amount($) OrigRate(%) Rate(%) RateOf90Days(%) DaysToRTP Days Time" > $creditLog
   fi
   rm -f $CreditListFile
-  wget --timeout=10 --tries=10 $CreditAddr/List -O $CreditListFile -o $LogFile #2>&1 > /dev/null
+  wget --timeout=10 --tries=10 "$CreditAddr/List?$Options" -O $CreditListFile -o $LogFile #2>&1 > /dev/null
   parseCreditList
   checkCount=$(($checkCount+1))
   sleep ${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
