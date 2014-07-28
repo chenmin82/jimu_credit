@@ -26,6 +26,7 @@ creditLog=""
 DEBUG=0
 FETION_NOTIFY=0
 FETION_CFG=fetion.cfg
+OS_RELEASE=`cat /etc/issue | head -n 1 | cut -d' ' -f1`
 
 parseArgs() {
   echo "Args: $@"
@@ -171,7 +172,11 @@ parseCreditList()
     echo "Good luck!" >> mail.txt
     if [ $newCredit -eq 1 ] ; then
       if [ ! "$(which mail)" == "" ]; then
-        mail -s "New credit $creditIndex: $creditRate%" chen.max@139.com < mail.txt
+	if [ "$OS_RELEASE" == "Ubuntu" ]; then
+	  mail -s "New credit $creditIndex: $creditRate%" chen.max@139.com < mail.txt
+	elif ["$OS_RELEASE" == "CentOS" ]; then
+	  mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com -- -f chenmin82@gmail.com < mail.txt
+	fi
       fi
       if [ ${FETION_NOTIFY} -eq 1 ]; then
 	# NOTICE: '%' is NOT allowed in fetion message.
