@@ -15,11 +15,8 @@ Options="status=1&guarantee=&order=rate&category="
 LogFile=jimu.log
 CreditListFile=List
 # check interval:
-# 0 - 6   : 30 sec
-# 7 - 8   : 20 sec
-# 9 - 21  : 10 sec
-# 22 - 23 : 15 sec
-CheckInterval=(30 30 30 30 30 30 30 20 20 10 10 10 10 10 10 10 10 10 10 10 10 10 15 15)
+# HOUR  ---->  0        3        6        9        12       15       18       21    23
+CheckInterval=(20 30 30 30 30 30 20 15 10 10 10 10 10 10 10 8  8  8  8  10 10 10 15 15)
 RateThreshold=0.85  # Rate discount ratio (real rate that can be retrieved after re-assigning the credit after holding it for 90 days.)
 DaysRTPThreshold=15 # At least returns to pricipal in 15 days.
 CreditIndexInfoList=""
@@ -35,16 +32,16 @@ parseArgs() {
   do
     case "$1" in
       "-d")
-	DEBUG=1
-	rm -f debug*.log
-	#set -x
-	;;
+        DEBUG=1
+        rm -f debug*.log
+        #set -x
+        ;;
       "--fetion")
         if [ -e $FETION_CFG ]; then
-	  FETION_NOTIFY=1;
-	else
-	  echo "No configuration file $FETION_CFG exists. Disable --fetion option."
-	fi
+          FETION_NOTIFY=1;
+        else
+          echo "No configuration file $FETION_CFG exists. Disable --fetion option."
+        fi
         ;;
     esac
     shift
@@ -174,32 +171,32 @@ parseCreditList()
     echo "Val/FV/P : \$ $creditValue / $creditFV / $creditPrice" >> mail.txt
     echo "Good luck!" >> mail.txt
     if [ $newCredit -eq 1 ] ; then
-      if [ ! "$(which mail)" == "" ]; then
-	if [ "$OS_RELEASE" == "Ubuntu" ]; then
-	  mail -s "New credit $creditIndex: $creditRate%" chen.max@139.com < mail.txt
-	elif ["$OS_RELEASE" == "CentOS" ]; then
-	  mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com -- -f chenmin82@gmail.com < mail.txt
-	fi
-      fi
       if [ ${FETION_NOTIFY} -eq 1 ]; then
-	# NOTICE: '%' is NOT allowed in fetion message.
-	local msg="$creditIndex Rate: $rateOf90Days/$creditRate/$creditOrigRate; RTP/Days: $daysToRTP/$creditDays; Val/FV/P: $creditValue/$creditFV/$creditPrice."
-	local msg_dbg="[`date +%T`] $msg"
+        # NOTICE: '%' is NOT allowed in fetion message.
+        local msg="[$creditAmount] Rate: $rateOf90Days/$creditRate/$creditOrigRate; RTP/Days: $daysToRTP/$creditDays; Val/FV/P: $creditValue/$creditFV/$creditPrice. [$creditIndex]"
+        local msg_dbg="[`date +%T`] $msg"
 
-	send_msg "$msg_dbg"
-	if [ -e ${TempDir}/send_msg.result ]; then
-	  msg_dbg="$msg_dbg -> `cat ${TempDir}/send_msg.result`"
-	  rm -f ${TempDir}/send_msg.result
-	fi
+        send_msg "$msg_dbg"
+        if [ -e ${TempDir}/send_msg.result ]; then
+          msg_dbg="$msg_dbg -> `cat ${TempDir}/send_msg.result`"
+          rm -f ${TempDir}/send_msg.result
+        fi
 
-	if [ $DEBUG -eq 1 ] ; then
-	  if [ ! -e debug_fetion.log ]; then
-	    echo "# All the messages sent by Fetion are listed below:" > debug_fetion.log
-	    echo "$msg_dbg" >> debug_fetion.log
-	  else
-	    sed -i -e '1a\' -e "$msg_dbg" debug_fetion.log
-	  fi
-	fi
+        if [ $DEBUG -eq 1 ] ; then
+          if [ ! -e debug_fetion.log ]; then
+            echo "# All the messages sent by Fetion are listed below:" > debug_fetion.log
+            echo "$msg_dbg" >> debug_fetion.log
+          else
+            sed -i -e '1a\' -e "$msg_dbg" debug_fetion.log
+          fi
+        fi
+      fi
+      if [ ! "$(which mail)" == "" ]; then
+        if [ "$OS_RELEASE" == "Ubuntu" ]; then
+          mail -s "New credit $creditIndex: $creditRate%" chen.max@139.com < mail.txt
+        elif [ "$OS_RELEASE" == "CentOS" ]; then
+          mail -s "New credit $creditIndex: $creditRate%" chen.max@qq.com -- -f chenmin82@gmail.com < mail.txt
+        fi
       fi
       # Update credit log, latest credit in second line
       creditInfo=$(format "$creditIndex $creditAmount $creditOrigRate $creditRate $rateOf90Days $daysToRTP $creditDays `date +%T`")

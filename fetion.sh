@@ -3,6 +3,7 @@
 
 user='' # User mobile phone number
 password='' # Login password of $user
+KEEP_ALIVE=2400000 # Keep alive interval in ms (default 40 minutes)
 code=""
 url_base='http://f.10086.cn/im5'
 url_init='http://f.10086.cn/im5/login/login.action'
@@ -12,23 +13,27 @@ url_msg='http://f.10086.cn/im5/chat/sendNewGroupShortMsg.action'
 TempDir='./minFetionTmp'
 Uagent='Mozilla/5.0'
 LOGIN="$TempDir/.fetion.login"
+SMS_LOG="$TempDir/.sms.log"
 t_login_local=0 # local login time in ms
 t_login=0       # login time in ms from server
+t_last_sms=0    # time last sms sent out.
 
 read_cfg() {
   while read -r value
   do
-    value=${value##^[[:space]]+}
-    value=${value%%[[:space]]+}
+    value=${value##^[[:space:]]+}
+    value=${value%%[[:space:]]+}
     case "$value" in
       user=*)
 	user=${value##user=};;
       password=*)
 	password=${value##password=};;
+      keepalive=*)
+        KEEP_ALIVE=${value##keepalive=};;
       *);;
     esac
   done
-  echo "user=$user, password=$password"
+  # echo "user=$user, password=$password, keepalive=$KEEP_ALIVE"
 }
 
 throw() {
@@ -36,11 +41,25 @@ throw() {
   exit 1
 }
 
-make_argt() {
+get_now() {
   local now_sec=`date +%s`
   local now_ns=`date +%N | sed 's/^0\+//g'`  # Removing leading 0.
   local now_t=$(($now_sec*1000+$now_ns/1000000))
-  echo "t=$(($now_t-$t_login_local+$t_login))"
+  echo "$(($now_t-$t_login_local+$t_login))"
+}
+
+sms_log() {
+  local log="`get_now` $1"
+  [ -e ${SMS_LOG} ] || echo "# All the logs sent by fetion are listed here:" > ${SMS_LOG}
+  sed -i -e '1a\' -e "$log" ${SMS_LOG} 
+}
+
+get_last_sms_time() {
+  echo `sed -n '2p' ${SMS_LOG} | cut -d' ' -f1`
+}
+
+make_argt() {
+  echo "t=`get_now`"
 }
 
 parse_captcha_code() {
@@ -158,13 +177,16 @@ login() {
   js_loader=`grep -o "js/loader.js?t=[0-9]*" ${TempDir}/login.action`
   t_login=${js_loader##[^=]*=}
   t_login_local=$((`date +%s`*1000+`date +%N | sed 's/^0\+//g'`/1000000))
+# echo "t_login=$t_login, t_login_local=$t_login_local"
   wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies ${url_base}/${js_loader} -O ${TempDir}/loader.js
 
-  #time=$(($time+3500))
-  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies "${url_base}/systemimage/verifycode${time}.png?tp=im5&`make_argt`" -O ${TempDir}/code1.png
+  tmp=`get_now`
+  arg_t="t=$tmp"
+  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies "${url_base}/systemimage/verifycode${tmp}.png?tp=im5&${arg_t}" -O ${TempDir}/code1.png
 
-  #time=$(($time+10))
-#  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies "${url_base}/systemimage/verifycode${time}.png?tp=im5&`make_argt`" -O ${TempDir}/code2.png
+#  tmp=`get_now`
+#  arg_t="t=$tmp"
+#  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies "${url_base}/systemimage/verifycode${tmp}.png?tp=im5&${arg_t}" -O ${TempDir}/code2.png
 
   parse_captcha_code
 
@@ -177,7 +199,6 @@ login() {
 :
 #arg_t=`tokenize < ${TempDir}/loginHtml5.action | parse | grep -e '^\[\"headurl\"]'| awk '{print $2}'|sed 's/"//g' | grep -Eo 't=\w+'`
   headurl=`tokenize < ${TempDir}/loginHtml5.action | parse | grep -e '^\[\"headurl\"]'| awk '{print $2}'| sed 's/"//g'`
-#arg_t="t=$((time+10000))"
   #echo ${headurl}
   #echo ${arg_t}
   idUser=`tokenize < ${TempDir}/loginHtml5.action | parse | grep -e '^\[\"idUser\"]'| awk '{print $2}'|sed 's/"//g'`
@@ -185,16 +206,24 @@ login() {
 
   wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies  --referer=${url_init} ${headurl}
 
+  [ -e $LOGIN ] && rm -f $LOGIN
   touch $LOGIN
+  echo "# All the logs sent by fetion are listed here:" > ${SMS_LOG}
 }
 
 send_msg() {
+  local last=$t_last_sms
   if [ $# -eq 0 ] ; then return; fi
   local msg=$1
+#  t_last_sms=`get_now`
   arg_t="`make_argt`"
+
   wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --post-data "msg=${msg}&touserid=%2c${idUser}" --referer=${url_init} ${url_msg}?${arg_t} -O ${TempDir}/send_msg.action
 
   tokenize < ${TempDir}/send_msg.action | parse | grep -e '^\[\"info\"]'|awk '{print $2}'| sed 's/"//g' > ${TempDir}/send_msg.result
+
+  sms_log "[`date`] [$msg] -> `cat ${TempDir}/send_msg.result`"
+  echo "$t_last_sms|$last [`date`] [$msg] -> `cat ${TempDir}/send_msg.result`" >> debug_sms.log
 }
 
 # Keep seesion alive till logout.
@@ -203,6 +232,14 @@ keep_alive() {
     url_keepalive="${url_base}/box/alllist.action"
     wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --post-data "" ${url_keepalive}?`make_argt` -O ${TempDir}/keep_alive.action
     echo "Keep alive: `date`"
+
+    # It seems if we doesn't send any sms in longer than 40minutes, it won't send sms anymore before we login again.
+    # So here we will send out a sms to keep the sever "alive".
+    local tmp=`get_now`
+    local last=`get_last_sms_time`
+    if [ $tmp -ge $((last+${KEEP_ALIVE})) ]; then
+      send_msg "Send keep-alive msg after $(((tmp-last)/1000)) seconds."
+    fi
     sleep 15
   done
   # In case we terminate fetion.sh unexpected by CTRL+C
