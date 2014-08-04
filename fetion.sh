@@ -16,7 +16,6 @@ LOGIN="$TempDir/.fetion.login"
 SMS_LOG="$TempDir/.sms.log"
 t_login_local=0 # local login time in ms
 t_login=0       # login time in ms from server
-t_last_sms=0    # time last sms sent out.
 
 read_cfg() {
   while read -r value
@@ -212,18 +211,17 @@ login() {
 }
 
 send_msg() {
-  local last=$t_last_sms
   if [ $# -eq 0 ] ; then return; fi
   local msg=$1
-#  t_last_sms=`get_now`
   arg_t="`make_argt`"
 
   wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --post-data "msg=${msg}&touserid=%2c${idUser}" --referer=${url_init} ${url_msg}?${arg_t} -O ${TempDir}/send_msg.action
 
   tokenize < ${TempDir}/send_msg.action | parse | grep -e '^\[\"info\"]'|awk '{print $2}'| sed 's/"//g' > ${TempDir}/send_msg.result
 
-  sms_log "[`date`] [$msg] -> `cat ${TempDir}/send_msg.result`"
-  echo "$t_last_sms|$last [`date`] [$msg] -> `cat ${TempDir}/send_msg.result`" >> debug_sms.log
+  msg="[`date '+%D %T'`] [$msg] -> `cat ${TempDir}/send_msg.result`"
+  sms_log "$msg"
+  echo "$msg" >> debug_sms.log
 }
 
 # Keep seesion alive till logout.

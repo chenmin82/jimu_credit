@@ -16,13 +16,16 @@ LogFile=jimu.log
 CreditListFile=List
 # check interval:
 # HOUR  ---->  0        3        6        9        12       15       18       21    23
-CheckInterval=(20 30 30 30 30 30 20 15 10 10 10 10 10 10 10 8  8  8  8  10 10 10 15 15)
+CheckInterval=(20 30 30 30 30 30 20 15 8  8  8  10 10 10 10 5  5  5  5  10 10 10 15 15)
 RateThreshold=0.85  # Rate discount ratio (real rate that can be retrieved after re-assigning the credit after holding it for 90 days.)
 DaysRTPThreshold=15 # At least returns to pricipal in 15 days.
 CreditIndexInfoList=""
 creditLog=""
 DEBUG=0
 FETION_NOTIFY=0
+MAIL_NOTIFY=0
+JIMU_ROBBER=1
+JM_robber_credit=../tmp/minJimuTmp/.credits
 FETION_CFG=fetion.cfg
 OS_RELEASE=`cat /etc/issue | head -n 1 | cut -d' ' -f1`
 
@@ -127,7 +130,13 @@ parseCreditList()
   #   2. days needed to recover the principal is less than $DaysRTPThreshold.
   goodCredit=0
   rateOf90Days=0.00
-  if [ ${creditValue%\.[0-9]*} -gt 500 ]; then
+  if [ `date "+%Y-%m"` == "2014-08" ]; then
+    if [ "$creditRate" == 14 ]; then
+      goodCredit=1
+      daysToRTP=0
+      rateOf90Days=$creditRate
+    fi
+  elif [ ${creditValue%\.[0-9]*} -gt 500 ]; then
     if [ `echo "$creditRate >= $creditOrigRate" | bc` -ne 0 ]; then
       goodCredit=1
       daysToRTP=0
@@ -171,6 +180,10 @@ parseCreditList()
     echo "Val/FV/P : \$ $creditValue / $creditFV / $creditPrice" >> mail.txt
     echo "Good luck!" >> mail.txt
     if [ $newCredit -eq 1 ] ; then
+      # Notify the jimu robber there is a new good credit
+      if [ $JIMU_ROBBER -eq 1 ]; then
+	echo $creditIndex > ${JM_robber_credit}
+      fi
       if [ ${FETION_NOTIFY} -eq 1 ]; then
         # NOTICE: '%' is NOT allowed in fetion message.
         local msg="[$creditAmount] Rate: $rateOf90Days/$creditRate/$creditOrigRate; RTP/Days: $daysToRTP/$creditDays; Val/FV/P: $creditValue/$creditFV/$creditPrice. [$creditIndex]"
@@ -191,7 +204,7 @@ parseCreditList()
           fi
         fi
       fi
-      if [ ! "$(which mail)" == "" ]; then
+      if [ ! "$(which mail)" == "" -a ${MAIL_NOTIFY} -eq 1 ]; then
         if [ "$OS_RELEASE" == "Ubuntu" ]; then
           mail -s "New credit $creditIndex: $creditRate%" chen.max@139.com < mail.txt
         elif [ "$OS_RELEASE" == "CentOS" ]; then
@@ -199,7 +212,7 @@ parseCreditList()
         fi
       fi
       # Update credit log, latest credit in second line
-      creditInfo=$(format "$creditIndex $creditAmount $creditOrigRate $creditRate $rateOf90Days $daysToRTP $creditDays `date +%T`")
+      creditInfo=$(format "$creditIndex $creditValue $creditOrigRate $creditRate $rateOf90Days $daysToRTP $creditDays `date +%T`")
       sed -i -e '1a\' -e "$creditInfo" $creditLog
     fi
     echo "------------------------"
@@ -219,6 +232,10 @@ if [ ${FETION_NOTIFY} -eq 1 ]; then
   send_msg "JIMU credit parser started."
   keep_alive &
 fi
+#if [ ${JIMU_ROBBER} -eq 1 ]; then
+#  jimu_login
+#  jimu_robber &
+#fi
 
 while true
 do
@@ -231,5 +248,5 @@ do
   wget --timeout=10 --tries=10 "$CreditAddr/List?$Options" -O $CreditListFile -o $LogFile #2>&1 > /dev/null
   parseCreditList
   checkCount=$(($checkCount+1))
-  sleep ${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
+  sleep 5 #${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
 done
