@@ -12,6 +12,7 @@ nocol='\E[0m'
 
 CreditAddr="https://www.jimubox.com/CreditAssign"
 Options="status=1&guarantee=&order=rate&category="
+#DiyaOption="status=1&guarantee=&order=rate&category=3"
 LogFile=jimu.log
 CreditListFile=List
 # check interval:
@@ -28,6 +29,30 @@ JIMU_ROBBER=1
 JM_robber_credit=../tmp/minJimuTmp/.credits
 FETION_CFG=fetion.cfg
 OS_RELEASE=`cat /etc/issue | head -n 1 | cut -d' ' -f1`
+JM_ProjectFilter=
+
+updateFilter() {
+  JM_ProjectFilter=""
+  while read -r line
+  do
+#    line=${line##+[ \t]}
+#    line=${line%%+[ \t]}
+    #echo $line
+    case "$line" in
+      \#*)
+        # ignore commets
+        #echo "comment line: $line"
+        ;;
+      [0-9]*)
+        JM_ProjectFilter="$JM_ProjectFilter $line"
+        ;;
+      *)
+        #echo "No matching for: $line"
+        ;;
+    esac
+  done
+  echo "JM_ProjectFilter=$JM_ProjectFilter"
+}
 
 parseArgs() {
   echo "Args: $@"
@@ -123,6 +148,7 @@ parseCreditList()
   tmpInfo=`grep '<span class="important">' $IndexFile | grep -o "[0-9][0-9,]*\.\?[0-9]*" | awk ' {sub(",", "", $1); print $1 } '`
   creditAmount=`echo "$tmpInfo" | sed -n '1p'`
   creditRate=`echo "$tmpInfo" | sed -n '2p'`
+  projectId=`grep "/Project/Index" $IndexFile | sed '1{s/^.*[ \t]//g;s/-.*$//g}'`
   rm -f $tmpIndexFile $IndexFile
 
   # A "good" credit:
@@ -130,7 +156,16 @@ parseCreditList()
   #   2. days needed to recover the principal is less than $DaysRTPThreshold.
   goodCredit=0
   rateOf90Days=0.00
-  if [ `date "+%Y-%m"` == "2014-08" ]; then
+  filtered=0
+  for prj in ${JM_ProjectFilter}; do
+    if [ "JM${projectId}" == "JM${prj}" ]; then
+      filtered=1
+      break
+    fi
+  done
+  if [ $filtered -eq 1 ]; then
+    goodCredit=0
+  elif [ `date "+%Y-%m"` == "2014-08" ]; then
     if [ "$creditRate" == 14 ]; then
       goodCredit=1
       daysToRTP=0
@@ -182,7 +217,7 @@ parseCreditList()
     if [ $newCredit -eq 1 ] ; then
       # Notify the jimu robber there is a new good credit
       if [ $JIMU_ROBBER -eq 1 ]; then
-	echo $creditIndex > ${JM_robber_credit}
+        echo $creditIndex > ${JM_robber_credit}
       fi
       if [ ${FETION_NOTIFY} -eq 1 ]; then
         # NOTICE: '%' is NOT allowed in fetion message.
@@ -239,6 +274,7 @@ fi
 
 while true
 do
+  updateFilter < filter.cfg
   echo -e "${checkCount}\t                        [ `date '+%x %H:%M:%S'` ]"
   creditLog="credit-`date '+%F'`.log"
   if [ ! -e $creditLog ]; then
