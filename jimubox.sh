@@ -11,7 +11,8 @@ red='\E[31;1m'
 nocol='\E[0m'
 
 CreditAddr="https://www.jimubox.com/CreditAssign"
-Options="status=1&guarantee=&order=rate&category="
+#Options="status=1&guarantee=&order=rate&category="
+Options="status=1&guarantee=&order=rate&order2=none&category="
 #DiyaOption="status=1&guarantee=&order=rate&category=3"
 LogFile=jimu.log
 CreditListFile=List
@@ -142,10 +143,10 @@ parseCreditList()
   creditValue=`echo "$tmpInfo" | sed -n '1p'`
   creditFV=`echo "$tmpInfo" | sed -n '2p'`
   creditPrice=`echo "$tmpInfo" | sed -n '3p'`
-  tmpInfo=`grep '<span class="">' $IndexFile`
-  creditOrigRate=`echo "$tmpInfo" | tail -n 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
-  creditDays=`echo "$tmpInfo" | head -n 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
-  tmpInfo=`grep '<span class="important">' $IndexFile | grep -o "[0-9][0-9,]*\.\?[0-9]*" | awk ' {sub(",", "", $1); print $1 } '`
+  tmpInfo=`grep 'class="">' $IndexFile`
+  creditOrigRate=`echo "$tmpInfo" | sed -n '6p' | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
+  creditDays=`echo "$tmpInfo" | sed -n '4p' | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
+  tmpInfo=`grep 'class="important">' $IndexFile | grep -o "[0-9][0-9,]*\.\?[0-9]*" | awk ' {sub(",", "", $1); print $1 } '`
   creditAmount=`echo "$tmpInfo" | sed -n '1p'`
   creditRate=`echo "$tmpInfo" | sed -n '2p'`
   projectId=`grep "/Project/Index" $IndexFile | sed '1{s/^.*[ \t]//g;s/-.*$//g}'`
@@ -284,5 +285,5 @@ do
   wget --timeout=10 --tries=10 "$CreditAddr/List?$Options" -O $CreditListFile -o $LogFile #2>&1 > /dev/null
   parseCreditList
   checkCount=$(($checkCount+1))
-  sleep 5 #${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
+  sleep 3 #${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
 done

@@ -1,9 +1,9 @@
 #!/bin/bash
 #Convert Python Fetion To Shell @2012
 
-user='' # User mobile phone number
-password='' # Login password of $user
-KEEP_ALIVE=2400000 # Keep alive interval in ms (default 40 minutes)
+Fetion_User='' # User mobile phone number
+Fetion_Pwd='' # Login password of $user
+Fetion_Keepalive=2400000 # Keep alive interval in ms (default 40 minutes)
 code=""
 url_base='http://f.10086.cn/im5'
 url_init='http://f.10086.cn/im5/login/login.action'
@@ -24,15 +24,15 @@ read_cfg() {
     value=${value%%[[:space:]]+}
     case "$value" in
       user=*)
-	user=${value##user=};;
+	Fetion_User=${value##user=};;
       password=*)
-	password=${value##password=};;
+	Fetion_Pwd=${value##password=};;
       keepalive=*)
-        KEEP_ALIVE=${value##keepalive=};;
+        Fetion_Keepalive=${value##keepalive=};;
       *);;
     esac
   done
-  # echo "user=$user, password=$password, keepalive=$KEEP_ALIVE"
+  # echo "user=$Fetion_User, password=$Fetion_Pwd, keepalive=$Fetion_Keepalive"
 }
 
 throw() {
@@ -190,7 +190,7 @@ login() {
   parse_captcha_code
 
 # Special notice: we need to update the cookie here.
-  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --save-cookies=${TempDir}/cookie --post-data "m=${user}&pass=${password}&captchaCode=${code}&checkCodeKey=null" "${url_login}?`make_argt`" -O ${TempDir}/loginHtml5.action
+  wget -q -P ${TempDir} --load-cookies=${TempDir}/cookie -U ${Uagent} --keep-session-cookies --save-cookies=${TempDir}/cookie --post-data "m=${Fetion_User}&pass=${Fetion_Pwd}&captchaCode=${code}&checkCodeKey=null" "${url_login}?`make_argt`" -O ${TempDir}/loginHtml5.action
 
   #cat ${TempDir}/loginHtml5.action
   #cp ${TempDir}/loginHtml5.action ${TempDir}/login.action
@@ -235,7 +235,7 @@ keep_alive() {
     # So here we will send out a sms to keep the sever "alive".
     local tmp=`get_now`
     local last=`get_last_sms_time`
-    if [ $tmp -ge $((last+${KEEP_ALIVE})) ]; then
+    if [ $tmp -ge $((last+${Fetion_Keepalive})) ]; then
       send_msg "Send keep-alive msg after $(((tmp-last)/1000)) seconds."
     fi
     sleep 15
