@@ -12,7 +12,8 @@ nocol='\E[0m'
 
 CreditAddr="https://www.jimubox.com/CreditAssign"
 #Options="status=1&guarantee=&order=rate&category="
-Options="status=1&guarantee=&order=rate&order2=none&category="
+#Options="status=1&guarantee=&order=rate&order2=none&category="
+Options="status=1&guarantee=&category=&rate=0&days=0"
 #DiyaOption="status=1&guarantee=&order=rate&category=3"
 LogFile=jimu.log
 CreditListFile=List
@@ -33,6 +34,7 @@ OS_RELEASE=`cat /etc/issue | head -n 1 | cut -d' ' -f1`
 JM_ProjectFilter=
 
 updateFilter() {
+  set +x
   JM_ProjectFilter=""
   while read -r line
   do
@@ -52,7 +54,8 @@ updateFilter() {
         ;;
     esac
   done
-  echo "JM_ProjectFilter=$JM_ProjectFilter"
+  JM_ProjectFilter="$JM_ProjectFilter "
+  echo "JM_ProjectFilter=[$JM_ProjectFilter]"
 }
 
 parseArgs() {
@@ -88,7 +91,7 @@ format() {
 
 parseCreditList()
 {
-  #set -x
+  set -x
   local linesPerCreditIndex=40
   local creditSepLineKey="project-card"
   if [ ! -e $CreditListFile ]; then return; fi
@@ -116,6 +119,7 @@ parseCreditList()
       creditRate=`echo "$indexInfo" | awk -F ';' ' { print $4 } '`
       creditDays=`echo "$indexInfo" | awk -F ';' ' { print $5 } '`
       rateOf90Days=`echo "$indexInfo" | awk -F ';' ' { print $6 } '`
+      creditDiscountRate=`echo "$indexInfo" | awk -F ';' ' { print $7 } '`
       break
     fi
   done
@@ -125,7 +129,7 @@ parseCreditList()
   if [ $newCredit -eq 0 ] ; then
     local creditUsed=`cat $tmpIndexFile | grep 'project-current-money' | grep -o "[0-9][0-9,]*\.\?[0-9]*"  | sed 's/,//g'`
     creditAmount=`echo "$creditValue-$creditUsed" | bc`
-    echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
+    echo -e "Credit $creditIndex/$creditOrigRate%+$creditDiscountRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
     rm -f $tmpIndexFile
     return
   fi
@@ -143,12 +147,12 @@ parseCreditList()
   creditValue=`echo "$tmpInfo" | sed -n '1p'`
   creditFV=`echo "$tmpInfo" | sed -n '2p'`
   creditPrice=`echo "$tmpInfo" | sed -n '3p'`
+  creditDiscountRate=`echo "$tmpInfo" | sed -n '4p'`
   tmpInfo=`grep 'class="">' $IndexFile`
-  creditOrigRate=`echo "$tmpInfo" | sed -n '6p' | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
   creditDays=`echo "$tmpInfo" | sed -n '4p' | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
+  creditOrigRate=`grep  "^[ \t]\+<span>" $IndexFile | sed -n '1p' | grep -o "[0-9][0-9,]*\.\?[0-9]*"`
   tmpInfo=`grep 'class="important">' $IndexFile | grep -o "[0-9][0-9,]*\.\?[0-9]*" | awk ' {sub(",", "", $1); print $1 } '`
   creditAmount=`echo "$tmpInfo" | sed -n '1p'`
-  creditRate=`echo "$tmpInfo" | sed -n '2p'`
   projectId=`grep "/Project/Index" $IndexFile | sed '1{s/^.*[ \t]//g;s/-.*$//g}'`
   rm -f $tmpIndexFile $IndexFile
 
@@ -156,46 +160,19 @@ parseCreditList()
   #   1. credit rate is greater than original credit rate, OR
   #   2. days needed to recover the principal is less than $DaysRTPThreshold.
   goodCredit=0
-  rateOf90Days=0.00
   filtered=0
-  for prj in ${JM_ProjectFilter}; do
-    if [ "JM${projectId}" == "JM${prj}" ]; then
-      filtered=1
-      break
-    fi
-  done
+  creditRate=`echo "scale=2; ($creditFV-$creditPrice)*36500/$creditPrice/$creditDays+$creditOrigRate*$creditValue/$creditPrice" | bc`
+  rateOf90Days=`echo "scale=2; ($creditFV-$creditPrice)*36500/$creditPrice/90+$creditOrigRate*$creditValue/$creditPrice" | bc`
+
+  echo ${JM_ProjectFilter} | grep " ${projectId} " -q
+  [ $? -eq 0 ] && filtered=1
   if [ $filtered -eq 1 ]; then
     goodCredit=0
-  elif [ `date "+%Y-%m"` == "2014-08" ]; then
-    if [ "$creditRate" == 14 ]; then
-      goodCredit=1
-      daysToRTP=0
-      rateOf90Days=$creditRate
-    fi
-  elif [ ${creditValue%\.[0-9]*} -gt 500 ]; then
-    if [ `echo "$creditRate >= $creditOrigRate" | bc` -ne 0 ]; then
-      goodCredit=1
-      daysToRTP=0
-      if [ $creditDays -gt 120 ]; then
-        rateOf90Days=`echo "scale=2; $creditOrigRate * $creditValue / $creditPrice + ($creditFV - $creditPrice) * 36500 / ($creditPrice * 90)" | bc`
-      else
-        rateOf90Days=$creditRate
-      fi
-    else
-      daysToRTP=`echo "scale=2; ($creditPrice - $creditFV) / ($creditOrigRate * $creditValue / 36500) " | bc`
-      if [ $creditDays -gt 120 ]; then        # credit that can be assigned again in the future
-        rateOf90Days=`echo "scale=2; (90 - $daysToRTP) * $creditOrigRate * $creditValue / (90 * $creditPrice)" | bc`
-      else
-        rateOf90Days=$creditRate
-      fi
-      #if [ `echo "scale=4; ($daysToRTP <= $DaysRTPThreshold) && ($rateOf90Days/$creditOrigRate >= $RateThreshold)" | bc` -ne 0 ] ; then
-      if [ `echo "scale=4; ($daysToRTP <= $DaysRTPThreshold) || ($rateOf90Days >= 11)" | bc` -ne 0 ] ; then
-        goodCredit=1
-      fi
-    fi
+  elif [ `echo "$creditOrigRate >= 14 || $creditRate >=14.5" | bc` -ne 0 ]; then
+    goodCredit=1
   fi
-  echo -e "Credit $creditIndex/$creditOrigRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
-  creditIndexInfo="$creditIndex;$creditOrigRate;$creditValue;$creditRate;$creditDays;$rateOf90Days"
+  echo -e "Credit $creditIndex/$creditOrigRate%+$creditDiscountRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
+  creditIndexInfo="$creditIndex;$creditOrigRate;$creditValue;$creditRate;$creditDays;$rateOf90Days;$creditDiscountRate"
   CreditIndexInfoList="$creditIndexInfo $CreditIndexInfoList"
 
   if [ $DEBUG -eq 1 ] ; then
@@ -211,7 +188,7 @@ parseCreditList()
     # If "mail" available and it's a new credit, send out a mail notification.
     echo "This credit looks good:" > mail.txt
     echo "    Rate : $rateOf90Days% / $creditRate% / $creditOrigRate%" >> mail.txt
-    echo "RTP/Days : $daysToRTP / $creditDays" >> mail.txt
+    echo "Dis/Days : $creditDiscountRate / $creditDays" >> mail.txt
     echo "  Amount : \$ $creditAmount" >> mail.txt
     echo "Val/FV/P : \$ $creditValue / $creditFV / $creditPrice" >> mail.txt
     echo "Good luck!" >> mail.txt
@@ -222,7 +199,7 @@ parseCreditList()
       fi
       if [ ${FETION_NOTIFY} -eq 1 ]; then
         # NOTICE: '%' is NOT allowed in fetion message.
-        local msg="[$creditAmount] Rate: $rateOf90Days/$creditRate/$creditOrigRate; RTP/Days: $daysToRTP/$creditDays; Val/FV/P: $creditValue/$creditFV/$creditPrice. [$creditIndex]"
+        local msg="[$creditAmount] Rate: $rateOf90Days/$creditRate/$creditOrigRate; Dis/Days: $creditDiscountRate/$creditDays; Val/FV/P: $creditValue/$creditFV/$creditPrice. [$creditIndex]"
         local msg_dbg="[`date +%T`] $msg"
 
         send_msg "$msg_dbg"
@@ -248,7 +225,7 @@ parseCreditList()
         fi
       fi
       # Update credit log, latest credit in second line
-      creditInfo=$(format "$creditIndex $creditValue $creditOrigRate $creditRate $rateOf90Days $daysToRTP $creditDays `date +%T`")
+      creditInfo=$(format "$creditIndex $creditValue $creditOrigRate $creditRate $rateOf90Days $creditDiscountRate $creditDays `date +%T`")
       sed -i -e '1a\' -e "$creditInfo" $creditLog
     fi
     echo "------------------------"
