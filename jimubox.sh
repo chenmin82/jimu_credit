@@ -16,7 +16,6 @@ CreditAddr="https://www.jimubox.com/CreditAssign"
 Options="status=1&guarantee=&category=&rate=0&days=0"
 #DiyaOption="status=1&guarantee=&order=rate&category=3"
 LogFile=jimu.log
-CreditListFile=List
 # check interval:
 # HOUR  ---->  0        3        6        9        12       15       18       21    23
 CheckInterval=(20 30 30 30 30 30 20 15 8  8  8  10 10 10 10 5  5  5  5  10 10 10 15 15)
@@ -89,25 +88,7 @@ format() {
   '
 }
 
-parseCreditList()
-{
-  set -x
-  local linesPerCreditIndex=40
-  local creditSepLineKey="project-card"
-  if [ ! -e $CreditListFile ]; then return; fi
-  if [ `cat $CreditListFile | wc -c` -eq 0 ]; then return; fi
-  tmpIndexFile=`mktemp -p .`
-  grep "$creditSepLineKey" -A $linesPerCreditIndex -m 1 $CreditListFile > $tmpIndexFile
-  # No credit index yet, return
-  if [ $? -eq 1 ]; then
-    echo "No credit available. Please wait..."
-    rm -f $tmpIndexFile
-    CreditIndexInfoList=""
-    return
-  fi
-
-  creditIndex=`cat $tmpIndexFile | grep "/CreditAssign/Index/[0-9]\+" -o  -m 1 | cut -d'/' -f4`
-
+parseCredit() {
   # whether it'a a new credit?
   newCredit=1
   for indexInfo in $CreditIndexInfoList; do
@@ -120,9 +101,20 @@ parseCreditList()
       creditDays=`echo "$indexInfo" | awk -F ';' ' { print $5 } '`
       rateOf90Days=`echo "$indexInfo" | awk -F ';' ' { print $6 } '`
       creditDiscountRate=`echo "$indexInfo" | awk -F ';' ' { print $7 } '`
-      break
+      return 0
     fi
   done
+
+  IndexFile=Index.$creditIndex
+  wget --timeout=10 --tries=10 $CreditAddr/Index/$creditIndex -O $IndexFile -a $LogFile #2>&1 > /dev/null
+
+  grep -q "<title>404" $IndexFile
+  if [ $? -eq 0 ]; then
+  # credit not exist
+    echo "Credit $creditIndex not exist."
+    rm -f $IndexFile
+    return 1
+  fi
 
   # No update...
 #  if [ "$lastCreditIndex" == "$creditIndex" ] ; then
@@ -131,18 +123,10 @@ parseCreditList()
     creditAmount=`echo "$creditValue-$creditUsed" | bc`
     echo -e "Credit $creditIndex/$creditOrigRate%+$creditDiscountRate%: \$ $creditAmount / [$creditRate%/$creditDays days] / [$rateOf90Days%/90 days]"
     rm -f $tmpIndexFile
-    return
+    return 0
   fi
 
-  IndexFile=Index.$creditIndex
-  wget --timeout=10 --tries=10 $CreditAddr/Index/$creditIndex -O $IndexFile -a $LogFile #2>&1 > /dev/null
-
   # Extract credit value, rate, days, amount.
-  #creditLine=`tac $tmpIndexFile | grep '<span class="important">' -m 1`
-  #creditOrigRate=`cat $tmpIndexFile | grep "^[ \t]*<span class=\"\">" | grep -o "[0-9][0-9]*\.\?[0-9]*"`
-  #creditRate=`echo $creditLine | tr '<span class="important">' " " | tr "%" " "  | awk ' { print $1 } '`
-  #creditDays=`tac $tmpIndexFile | grep '<span class="title">' -m 1 | grep -o "[0-9]\+"`
-  #creditAmount=`cat $tmpIndexFile | grep '<span class="important">' -m 1 | grep -o "[0-9][0-9,]*\.\?[0-9]*" | tail -n 1 | awk ' { sub(",", "", $1); print $1 } '`
   tmpInfo=`grep "^[ \t]*[0-9][0-9,]*\.\?[0-9]*" $IndexFile | awk ' {sub(",", "", $1); print $1 } '`
   creditValue=`echo "$tmpInfo" | sed -n '1p'`
   creditFV=`echo "$tmpInfo" | sed -n '2p'`
@@ -155,6 +139,9 @@ parseCreditList()
   creditAmount=`echo "$tmpInfo" | sed -n '1p'`
   projectId=`grep "/Project/Index" $IndexFile | sed '1{s/^.*[ \t]//g;s/-.*$//g}'`
   rm -f $tmpIndexFile $IndexFile
+
+  # Index has been already assigned.
+  [ "$creditOrigRate" == "" ] && return 0
 
   # A "good" credit:
   #   1. credit rate is greater than original credit rate, OR
@@ -233,9 +220,108 @@ parseCreditList()
     echo "------------------------"
     rm -f mail.txt
   fi
+  return 0
 }
 
+parseFirstCredit()
+{
+  local Opitons1st="status=1&guarantee=&category=&rate=0&days=0"
+  local CreditListFile=List1st
+  local linesPerCreditIndex=40
+  local creditSepLineKey="project-card"
+
+  wget --timeout=10 --tries=10 "$CreditAddr/List?${Options1st}" -O $CreditListFile -o $LogFile #2>&1 > /dev/null
+
+  if [ ! -e $CreditListFile ]; then return 1; fi
+  if [ `cat $CreditListFile | wc -c` -eq 0 ]; then return 1; fi
+  tmpIndexFile=`mktemp -p .`
+  grep "$creditSepLineKey" -A $linesPerCreditIndex -m 1 $CreditListFile > $tmpIndexFile
+  # No credit index yet, return
+  if [ $? -eq 1 ]; then
+    echo "No credit available. Please wait..."
+    rm -f $tmpIndexFile $CreditListFile
+    CreditIndexInfoList=""
+    return 1
+  fi
+
+  creditIndex=`cat $tmpIndexFile | grep "/CreditAssign/Index/[0-9]\+" -o  -m 1 | cut -d'/' -f4`
+  parseCredit $creditIndex
+  rm -f $tmpIndexFile $CreditListFile
+  return 0
+}
+
+isPageLinkAvailable() {
+  local CreditListFile=$1
+  local pageNo=$2
+
+  if [ ! -e $CreditListFile ]; then return 1; fi
+
+  # whether next page availabe
+  grep -q "&page=${pageNo}&" $CreditListFile
+  if [ $? -eq 0 ] ; then
+    echo "Page $pageNo available."
+    return 0
+  else
+    echo "Page $pageNo NOT available."
+    return 1
+  fi
+
+}
+
+parseCreditListInCurrPage()
+{
 #set -x
+  local CreditListFile=$1
+  local currentPage=$2
+  local linesPerCreditIndex=50
+  local totalCreditsInCurrPage=0
+  local creditSepLineKey="project-card"
+  totalCreditsInCurrPage=`grep $creditSepLineKey $CreditListFile | wc -l`
+  if [ $currentPage -eq 1 ] && [ $totalCreditsInCurrPage -eq 0 ] ; then
+    echo "No credit >=12% available. Please wait..."
+    return
+  fi
+
+  echo "There are $totalCreditsInCurrPage credits in Page $currentPage."
+  # for ((i=0; i<$totalCreditsInCurrPage; i++))
+  for i in `seq $totalCreditsInCurrPage`
+  do
+    # get (i)th credit in current page
+    echo "Get ($i)th credit in Page $currentPage."
+    tmpIndexFile=`mktemp -p .`
+    grep $creditSepLineKey -C $linesPerCreditIndex -m $i $CreditListFile | tail -n $(($linesPerCreditIndex+1)) > $tmpIndexFile
+    # No credit index yet, return
+    creditIndex=`cat $tmpIndexFile | grep "/CreditAssign/Index/[0-9]\+" -o -m 1 | cut -d'/' -f4`
+    parseCredit $creditIndex
+    rm -f $tmpIndexFile
+  done
+}
+
+parseCredit12_14() {
+  set -x
+  local Options12="status=1&guarantee=&category=&rate=3&days=0"
+  local CreditListFile=List12
+  local linesPerCreditIndex=40
+  local creditSepLineKey="project-card"
+  local maxPages=1
+  local currentPage=1
+
+  while [ 1 ]; do
+    rm -f $CreditListFile
+    wget --timeout=10 --tries=10 "$CreditAddr/List?${Options12}&page=${currentPage}" -O $CreditListFile -o $LogFile
+    parseCreditListInCurrPage ${CreditListFile} ${currentPage}
+    isPageLinkAvailable ${CreditListFile} $((currentPage+1))
+    if [ $? -eq 0 ]; then
+      currentPage=$(($currentPage+1))
+    else
+      break
+    fi
+    if [ $maxPages -gt 0 -a $currentPage -gt $maxPages ]; then break; fi
+  done
+  rm -f ${CreditListFile}
+  set +x
+}
+
 checkCount=1
 parseArgs "$@"
 
@@ -252,15 +338,18 @@ fi
 
 while true
 do
+  set +x
   updateFilter < filter.cfg
   echo -e "${checkCount}\t                        [ `date '+%x %H:%M:%S'` ]"
   creditLog="credit-`date '+%F'`.log"
+  set -x
   if [ ! -e $creditLog ]; then
-    format "Index Amount($) OrigRate(%) Rate(%) RateOf90Days(%) DaysToRTP Days Time" > $creditLog
+    format "Index Amount($) OrigRate(%) Rate(%) RateOf90Days(%) DisctRate Days Time" > $creditLog
+    creditIndex=""
   fi
   rm -f $CreditListFile
-  wget --timeout=10 --tries=10 "$CreditAddr/List?$Options" -O $CreditListFile -o $LogFile #2>&1 > /dev/null
-  parseCreditList
+  parseFirstCredit
+  parseCredit12_14
   checkCount=$(($checkCount+1))
   sleep 3 #${CheckInterval[`date '+%H' | sed 's/^0//g'`]}
 done
